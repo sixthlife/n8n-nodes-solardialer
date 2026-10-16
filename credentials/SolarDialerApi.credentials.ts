@@ -1,5 +1,6 @@
 import type {
 	IAuthenticateGeneric,
+	Icon,
 	ICredentialTestRequest,
 	ICredentialType,
 	INodeProperties,
@@ -11,6 +12,8 @@ export class SolarDialerApi implements ICredentialType {
 	name = 'solarDialerApi';
 
 	displayName = 'SolarDialer API';
+
+	icon: Icon = { light: 'file:solardialer.svg', dark: 'file:solardialer.dark.svg' };
 
 	documentationUrl = 'https://solardialer.net/n8n';
 

@@ -7,8 +7,9 @@ import type {
 	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
+	JsonObject,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 export const BASE = 'https://solardialer.net/api/v1';
 
@@ -76,14 +77,14 @@ export class SolarDialer implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'SolarDialer',
 		name: 'solarDialer',
-		icon: 'file:solardialer.png',
+		icon: { light: 'file:solardialer.svg', dark: 'file:solardialer.dark.svg' },
 		group: ['output'],
 		version: 1,
 		subtitle: '={{$parameter["operation"]}}',
 		description: 'Add leads to SolarDialer, or have its AI agent call them right away',
 		defaults: { name: 'SolarDialer' },
-		inputs: ['main'],
-		outputs: ['main'],
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
 		credentials: [{ name: 'solarDialerApi', required: true }],
 		properties: [
@@ -100,9 +101,9 @@ export class SolarDialer implements INodeType {
 						action: 'Call a lead now',
 					},
 					{
-						name: 'Create or Update Lead',
+						name: 'Create or Update',
 						value: 'upsert',
-						description: 'Create a new lead, or update one with the same phone or ID',
+						description: 'Create a new record, or update the current one if it already exists (upsert)',
 						action: 'Create or update a lead',
 					},
 					{
@@ -180,13 +181,15 @@ export class SolarDialer implements INodeType {
 		const items = this.getInputData();
 		const out: INodeExecutionData[] = [];
 		for (let i = 0; i < items.length; i++) {
+			const operation = this.getNodeParameter('operation', i) as string;
+			if (operation === 'find' && !(this.getNodeParameter('findValue', i) as string).trim()) {
+				throw new NodeOperationError(this.getNode(), 'Fill in the phone or lead ID.', { itemIndex: i });
+			}
 			try {
-				const operation = this.getNodeParameter('operation', i) as string;
 				let result: IDataObject | IDataObject[];
 				if (operation === 'find') {
 					const by = this.getNodeParameter('findBy', i) as string;
 					const value = (this.getNodeParameter('findValue', i) as string).trim();
-					if (!value) throw new NodeOperationError(this.getNode(), 'Fill in the phone or lead ID.', { itemIndex: i });
 					result = await api.call(this, 'GET', '/leads', undefined, { [by]: value });
 				} else {
 					const body: IDataObject = {
@@ -207,7 +210,7 @@ export class SolarDialer implements INodeType {
 					out.push({ json: { error: (error as Error).message }, pairedItem: { item: i } });
 					continue;
 				}
-				throw error;
+				throw new NodeApiError(this.getNode(), error as JsonObject, { itemIndex: i });
 			}
 		}
 		return [out];

@@ -6,6 +6,7 @@ import type {
 	IWebhookFunctions,
 	IWebhookResponseData,
 } from 'n8n-workflow';
+import { NodeConnectionTypes } from 'n8n-workflow';
 
 import { api } from './SolarDialer.node';
 
@@ -26,14 +27,14 @@ export class SolarDialerTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'SolarDialer Trigger',
 		name: 'solarDialerTrigger',
-		icon: 'file:solardialer.png',
+		icon: { light: 'file:solardialer.svg', dark: 'file:solardialer.dark.svg' },
 		group: ['trigger'],
 		version: 1,
 		subtitle: '={{$parameter["event"]}}',
 		description: 'Starts the workflow when SolarDialer ends a call, transfers a lead, books a callback and more',
 		defaults: { name: 'SolarDialer Trigger' },
 		inputs: [],
-		outputs: ['main'],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [{ name: 'solarDialerApi', required: true }],
 		webhooks: [{ name: 'default', httpMethod: 'POST', responseMode: 'onReceived', path: 'webhook' }],
 		properties: [
@@ -69,8 +70,9 @@ export class SolarDialerTrigger implements INodeType {
 				if (data.hookId) {
 					try {
 						await api.call(this as never, 'DELETE', `/hooks/${data.hookId}`);
-					} catch {
-						// Gone already: nothing to remove.
+					} catch (error) {
+						// Gone already (or SolarDialer unreachable): the workflow is deactivated anyway.
+						this.logger.warn(`SolarDialer webhook ${data.hookId} not removed: ${(error as Error).message}`);
 					}
 					delete data.hookId;
 				}
