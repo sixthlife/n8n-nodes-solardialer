@@ -1,8 +1,10 @@
 import type {
 	IDataObject,
 	IExecuteFunctions,
+	IHookFunctions,
 	IHttpRequestMethods,
 	ILoadOptionsFunctions,
+	INode,
 	INodeExecutionData,
 	INodePropertyOptions,
 	INodeType,
@@ -58,7 +60,7 @@ const LEAD_FIELDS = [
 ];
 
 export async function api(
-	this: IExecuteFunctions | ILoadOptionsFunctions,
+	this: IExecuteFunctions | ILoadOptionsFunctions | IHookFunctions,
 	method: IHttpRequestMethods,
 	path: string,
 	body?: IDataObject,
@@ -71,6 +73,21 @@ export async function api(
 		qs,
 		json: true,
 	})) as IDataObject | IDataObject[];
+}
+
+// A failed request as n8n shows it, with the API's own words as its description. The API
+// answers every error as {"ok": false, "errors": [text, ...]}; n8n keeps that body in the
+// error's context.data (response.data on an unwrapped one), but its message is a generic
+// line for the status ("Bad request - please check your parameters") and its description
+// often the HTTP client's "Request failed with status code 400" (code review 2026-10-22).
+export function apiError(node: INode, error: unknown, itemIndex?: number): NodeApiError {
+	const wrapped = new NodeApiError(node, error as JsonObject, itemIndex === undefined ? {} : { itemIndex });
+	const body = (wrapped.context?.data ?? (error as { response?: { data?: unknown } })?.response?.data) as
+		| IDataObject
+		| undefined;
+	const errors = body && Array.isArray(body.errors) ? body.errors.filter((e) => typeof e === 'string') : [];
+	if (errors.length) wrapped.description = errors.join(' ');
+	return wrapped;
 }
 
 export class SolarDialer implements INodeType {
@@ -206,11 +223,13 @@ export class SolarDialer implements INodeType {
 					out.push({ json: row, pairedItem: { item: i } });
 				}
 			} catch (error) {
+				const failed = apiError(this.getNode(), error, i);
 				if (this.continueOnFail()) {
-					out.push({ json: { error: (error as Error).message }, pairedItem: { item: i } });
+					// What went wrong in the API's words, not n8n's generic line for the status.
+					out.push({ json: { error: failed.description || failed.message }, pairedItem: { item: i } });
 					continue;
 				}
-				throw new NodeApiError(this.getNode(), error as JsonObject, { itemIndex: i });
+				throw failed;
 			}
 		}
 		return [out];

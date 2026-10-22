@@ -8,7 +8,7 @@ import type {
 } from 'n8n-workflow';
 import { NodeConnectionTypes } from 'n8n-workflow';
 
-import { api } from './SolarDialer.node';
+import { api, apiError } from './SolarDialer.node';
 
 // SolarDialer's webhook events (solardialer.net/api): one subscription per workflow,
 // made when it is activated and removed when it is deactivated.
@@ -51,12 +51,41 @@ export class SolarDialerTrigger implements INodeType {
 
 	webhookMethods = {
 		default: {
+			// Asks SolarDialer, not only this workflow's memory (code review 2026-10-22): a hook
+			// removed on its Integrations page, marked failing after its retries, or sent to an
+			// older webhook URL left the trigger active with nothing ever arriving.
 			async checkExists(this: IHookFunctions): Promise<boolean> {
 				const data = this.getWorkflowStaticData('node');
-				return Boolean(data.hookId);
+				if (!data.hookId) return false;
+				let hook: IDataObject;
+				try {
+					hook = (await api.call(this, 'GET', `/hooks/${data.hookId}`)) as IDataObject;
+				} catch (error) {
+					const failed = apiError(this.getNode(), error);
+					// Unreachable or failing itself: activation stops here, rather than a second hook
+					// to the same URL while the first may still be live.
+					if (failed.httpCode !== '404') throw failed;
+					delete data.hookId;
+					return false;
+				}
+				if (
+					!hook.failing &&
+					hook.target_url === this.getNodeWebhookUrl('default') &&
+					hook.event === this.getNodeParameter('event')
+				) {
+					return true;
+				}
+				// Not this node's any more: removed (best effort) before a new one is made.
+				try {
+					await api.call(this, 'DELETE', `/hooks/${data.hookId}`);
+				} catch (error) {
+					this.logger.warn(`SolarDialer webhook ${data.hookId} not removed: ${(error as Error).message}`);
+				}
+				delete data.hookId;
+				return false;
 			},
 			async create(this: IHookFunctions): Promise<boolean> {
-				const made = (await api.call(this as never, 'POST', '/hooks', {
+				const made = (await api.call(this, 'POST', '/hooks', {
 					event: this.getNodeParameter('event') as string,
 					target_url: this.getNodeWebhookUrl('default'),
 					source: 'n8n',
@@ -69,7 +98,7 @@ export class SolarDialerTrigger implements INodeType {
 				const data = this.getWorkflowStaticData('node');
 				if (data.hookId) {
 					try {
-						await api.call(this as never, 'DELETE', `/hooks/${data.hookId}`);
+						await api.call(this, 'DELETE', `/hooks/${data.hookId}`);
 					} catch (error) {
 						// Gone already (or SolarDialer unreachable): the workflow is deactivated anyway.
 						this.logger.warn(`SolarDialer webhook ${data.hookId} not removed: ${(error as Error).message}`);
