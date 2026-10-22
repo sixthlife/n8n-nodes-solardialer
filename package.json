@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-solardialer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SolarDialer for n8n: an AI agent that calls your leads and live-transfers interested ones to your closer. Add or call leads, and start workflows from calls, transfers and callbacks.",
   "keywords": [
     "n8n-community-node-package",
